@@ -40,6 +40,7 @@ pacman -S --needed \
 ```
 
 패키지 이름이 맞지 않는다는 오류가 나면 `pacman -Ss qt5-base` 처럼 검색해서 확인한다.
+Qt Creator 실행과 킷 설정은 4장에서 이어서 다룬다.
 
 설치 확인:
 
@@ -73,7 +74,122 @@ framesource.h
 
 `build/` 폴더가 딸려 왔다면 **지운다.** 다른 PC 에서 생성된 캐시가 남아 있으면 설정 단계에서 실패한다.
 
-## 4. Qt Creator 에서 열기
+## 4. Qt Creator 설치와 킷 설정
+
+### 4-1. 설치
+
+2장의 패키지 목록에 이미 포함돼 있다. 따로 설치하려면:
+
+```bash
+pacman -S mingw-w64-ucrt-x86_64-qt-creator
+```
+
+디버깅까지 하려면 gdb 도 필요하다. (toolchain 패키지에 보통 포함돼 있다)
+
+```bash
+pacman -S mingw-w64-ucrt-x86_64-gdb
+```
+
+> Qt 공식 온라인 설치 프로그램(qt.io)으로 받은 Qt Creator 를 써도 된다.
+> 다만 그 경우 Qt 와 컴파일러도 공식 설치본을 쓰는 편이 섞이지 않아 안전하다.
+> MSYS2 의 OpenCV 와 조합하려면 경로를 직접 맞춰야 하므로, 이 문서는 MSYS2 기준으로 설명한다.
+
+### 4-2. 실행
+
+**반드시 MSYS2 UCRT64 터미널에서 실행한다.**
+
+```bash
+qtcreator &
+```
+
+`&` 를 붙이면 터미널을 계속 쓸 수 있다.
+
+바탕화면 바로가기나 탐색기에서 exe 를 직접 실행하면 `PATH` 에
+`C:\msys64\ucrt64\bin` 이 없어서, 컴파일러나 DLL 을 못 찾는 문제가 생길 수 있다.
+바로가기를 만들고 싶다면 대상에 아래처럼 지정한다.
+
+```
+C:\msys64\msys2_shell.cmd -ucrt64 -defterm -no-start -where . -c "qtcreator"
+```
+
+### 4-3. 킷 자동 인식 확인
+
+처음 실행하면 MSYS2 의 컴파일러와 Qt 를 스스로 찾는다.
+**도구 → 옵션 → Kits** 에서 확인한다.
+
+| 탭 | 있어야 하는 항목 | 경로 |
+|---|---|---|
+| Compilers | GCC (C), GCC (C++) | `C:\msys64\ucrt64\bin\gcc.exe` / `g++.exe` |
+| Debuggers | GDB | `C:\msys64\ucrt64\bin\gdb.exe` |
+| Qt Versions | Qt 5.15.x | `C:\msys64\ucrt64\bin\qmake.exe` |
+| Kits | 위 셋을 묶은 킷 | 이름 예: `Desktop Qt 5.15.x MinGW-w64 UCRT64 (MSYS2)` |
+
+킷 이름 옆에 **경고(노란 삼각형)나 오류(빨간 X) 아이콘이 없어야 한다.**
+아이콘에 마우스를 올리면 무엇이 빠졌는지 알려준다.
+
+### 4-4. 자동 인식이 안 될 때 수동 등록
+
+아래 순서대로 하나씩 추가한다. **순서가 중요하다** — 컴파일러와 Qt 를 먼저
+등록해야 킷에서 고를 수 있다.
+
+**① Compilers 탭**
+
+- 추가 → MinGW → C++
+  - 이름: `g++ (ucrt64)`
+  - 컴파일러 경로: `C:\msys64\ucrt64\bin\g++.exe`
+- 추가 → MinGW → C
+  - 이름: `gcc (ucrt64)`
+  - 컴파일러 경로: `C:\msys64\ucrt64\bin\gcc.exe`
+
+**② Debuggers 탭**
+
+- 추가
+  - 이름: `gdb (ucrt64)`
+  - 경로: `C:\msys64\ucrt64\bin\gdb.exe`
+
+**③ Qt Versions 탭**
+
+- 추가 → `C:\msys64\ucrt64\bin\qmake.exe` 선택
+- 등록 후 버전이 `Qt 5.15.x (ucrt64)` 처럼 표시되는지 확인
+
+**④ Kits 탭**
+
+- 추가 후 아래를 지정한다.
+
+| 항목 | 값 |
+|---|---|
+| 이름 | `MSYS2 UCRT64 Qt5` |
+| Device type | Desktop |
+| Compiler C / C++ | 위에서 등록한 gcc / g++ |
+| Debugger | 위에서 등록한 gdb |
+| Qt version | 위에서 등록한 Qt 5.15.x |
+| CMake Tool | (qmake 만 쓸 거면 비워도 됨) |
+
+**⑤ Build & Run → Make 확인**
+
+qmake 빌드는 `mingw32-make.exe` 를 쓴다. 없다면 설치한다.
+
+```bash
+pacman -S mingw-w64-ucrt-x86_64-make
+```
+
+`C:\msys64\ucrt64\bin\mingw32-make.exe` 가 있는지 확인한다.
+
+### 4-5. 설치 확인용 체크리스트
+
+- [ ] UCRT64 터미널에서 `qtcreator` 실행됨
+- [ ] Kits 탭에 킷이 있고 경고 아이콘 없음
+- [ ] Compilers 에 gcc / g++ 둘 다 있음
+- [ ] Qt Versions 에 qmake 경로가 `ucrt64` 아래로 잡힘
+- [ ] `C:\msys64\ucrt64\bin\mingw32-make.exe` 존재
+- [ ] 새 프로젝트(File → New → Qt Widgets Application)를 만들어 빌드·실행이 됨
+
+마지막 항목이 가장 확실한 검증이다. 빈 프로젝트가 빌드되면 환경은 정상이고,
+이후 문제가 생기면 프로젝트 설정 쪽을 보면 된다.
+
+---
+
+## 5. 프로젝트 열기와 빌드
 
 1. Qt Creator 실행 → 파일 → 파일 또는 프로젝트 열기 → **`hmi.pro`** 선택
 2. 킷 선택 화면에서 **Desktop Qt 5.15.x MinGW-w64 UCRT64 (MSYS2)** 체크 → Configure Project
@@ -85,16 +201,16 @@ framesource.h
 - **Qt Versions** 탭에 `C:\msys64\ucrt64\bin\qmake.exe` 가 등록돼 있는지
 - **Kits** 탭에서 위 둘을 조합한 킷이 있고 경고 아이콘이 없는지
 
-## 5. 실행 전 확인
+## 6. 실행 전 확인
 
-### 5-1. DLL 경로
+### 6-1. DLL 경로
 
 빌드는 되는데 실행하면 창이 안 뜨고 바로 종료된다면 DLL 을 못 찾는 것이다.
 Qt Creator → 프로젝트 → **실행** → 환경 → `PATH` 에 `C:\msys64\ucrt64\bin` 을 추가한다.
 
 링크는 `lib` 의 임포트 라이브러리로 되지만, 실행 시에는 `bin` 의 DLL 이 필요하다.
 
-### 5-2. 카메라 인덱스
+### 6-2. 카메라 인덱스
 
 카메라 번호는 PC 마다 다르다. `listcam/` 폴더의 `listcam.pro` 를 따로 열어 빌드하고 실행하면
 사용 가능한 인덱스를 확인할 수 있다.
@@ -112,7 +228,7 @@ static constexpr int kRearCamSrc = 1;   // USB 후방 캠
 
 USB 포트를 바꿔 꽂으면 번호가 뒤바뀔 수 있다.
 
-### 5-3. 얼굴 검출용 cascade 파일
+### 6-3. 얼굴 검출용 cascade 파일
 
 `haarcascade_frontalface_default.xml` 이 필요하다. 아래 순서로 자동 탐색하므로,
 MSYS2 기본 경로에 OpenCV 를 설치했다면 별도 작업이 없다.
@@ -129,7 +245,7 @@ C:\msys64\ucrt64\share\opencv4\haarcascades\haarcascade_frontalface_default.xml
 
 ---
 
-## 6. 자주 겪는 오류
+## 7. 자주 겪는 오류
 
 | 증상 | 원인과 해결 |
 |---|---|
@@ -142,10 +258,14 @@ C:\msys64\ucrt64\share\opencv4\haarcascades\haarcascade_frontalface_default.xml
 | 카메라 화면이 조금씩 커짐 | `QLabel` 이 픽스맵 크기를 sizeHint 로 쓰기 때문. `setSizePolicy(Ignored, Ignored)` 로 해결 (이미 적용됨) |
 | 탭과 화면이 어긋남 | `navList` 항목 수와 `stackMain` 페이지 수가 달라진 것. Designer 에서 짝을 맞춰 삭제한다 |
 | `.pro` 를 고쳤는데 반영 안 됨 | 빌드 → **Run qmake** 후 **Rebuild**. 기존 Makefile 이 남아 있으면 무시된다 |
+| `kit ... has configuration issues` | 도구 → 옵션 → Kits 에서 컴파일러·Qt·디버거가 모두 지정됐는지 확인 (4-3, 4-4 참고) |
+| `No CMAKE_CXX_COMPILER could be found` | 킷에 컴파일러가 없음. 4-4 의 ① 부터 다시 등록한다 |
+| Qt Creator 에서 컴파일러를 못 찾음 | 탐색기에서 실행했을 가능성. UCRT64 터미널에서 `qtcreator &` 로 실행 (4-2 참고) |
+| MSYS2 터미널에 붙여넣기 안 됨 | `Ctrl+V` 대신 **마우스 우클릭** 또는 `Shift+Insert` |
 
 ---
 
-## 7. Linux 에서 빌드 (참고)
+## 8. Linux 에서 빌드 (참고)
 
 ```bash
 sudo apt install qtbase5-dev qt5-qmake libopencv-dev
@@ -158,7 +278,7 @@ qmake hmi.pro && make -j4
 
 ---
 
-## 8. 프로젝트 구조
+## 9. 프로젝트 구조
 
 | 파일 | 역할 |
 |---|---|
@@ -176,7 +296,7 @@ qmake hmi.pro && make -j4
 
 ---
 
-## 9. 카메라가 없을 때 (동영상 / 사진으로 대체)
+## 10. 카메라가 없을 때 (동영상 / 사진으로 대체)
 
 카메라 없이도 전체 흐름을 개발·테스트할 수 있다. `MainWindow::createSource()` 가
 아래 순서로 입력을 고른다.
