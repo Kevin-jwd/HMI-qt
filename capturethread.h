@@ -11,6 +11,8 @@ class CaptureThread : public QThread, public FrameSource
 {
     Q_OBJECT
 public:
+    static constexpr int kOpenRetries = 3;   // 열기 재시도 횟수
+
     explicit CaptureThread(int src, int width = 640, int height = 480, QObject *parent = nullptr);
 
     cv::Mat readLatest() const override;   // 복사본 반환
