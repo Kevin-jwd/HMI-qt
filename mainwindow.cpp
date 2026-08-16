@@ -6,12 +6,19 @@
 
 #include <QCloseEvent>
 #include <QLabel>
+#include <QRegularExpression>
 #include <QPixmap>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    for (QLabel *label : findChildren<QLabel *>(QRegularExpression(QStringLiteral("^lblCam")))) {
+        label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        label->setMinimumSize(160, 120);
+        label->setAlignment(Qt::AlignCenter);
+        label->setScaledContents(false);
+    }
     styleNavAsToolBox();
     ui->navList->setCurrentRow(0);
 
@@ -48,8 +55,10 @@ void MainWindow::showImage(QLabel *label, const QImage &image)
 {
     if (image.isNull())
         return;
-    label->setPixmap(QPixmap::fromImage(image).scaled(label->size(), Qt::KeepAspectRatio,
-                                                      Qt::SmoothTransformation));
+    // label->size() 를 쓰면 [픽스맵 -> sizeHint -> 라벨 확대] 순환이 생긴다.
+    // 고정 크기로 스케일하면 순환이 끊긴다.
+    label->setPixmap(QPixmap::fromImage(image).scaled(640, 480,
+                     Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
 void MainWindow::onCameraOpened(bool ok, const QString &message)
