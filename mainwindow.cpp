@@ -2,13 +2,21 @@
 #include "capturethread.h"
 #include "databasemanager.h"
 #include "displaythread.h"
+#include "driverlistdialog.h"
+#include "faceengine.h"
+#include "recognitionthread.h"
 #include "ui_mainwindow.h"
 
 #include <QDate>
+#include <QDir>
+#include <QFileInfo>
 #include <QCloseEvent>
 #include <QImage>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QPixmap>
+#include <opencv2/imgcodecs.hpp>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QPushButton>
@@ -56,17 +64,26 @@ MainWindow::MainWindow(QWidget *parent)
     queryDatabase();
 
     setupCameras();
+    setupFaceRecognition();
+
+    // 시나리오: 탑승 -> 운전자 인식 -> 인증 완료 -> 계기판
+    // 시작 화면은 운전자 인식 탭이다. ('인식 시작' 버튼이 문 열림을 대신한다)
+    goToPage(ui->pageDriver);
+    ui->lblRecogResult->setText(tr("인식 시작을 눌러 운전자 인증을 진행하세요"));
+    setDrivingEnabled(false);   // 인증 전에는 주행 조작 불가
 }
 
 MainWindow::~MainWindow()
 {
     // 소비자(표시) 먼저, 생산자(캡처) 나중에
+    if (m_recognizer)  m_recognizer->stop();
     if (m_userView)    m_userView->stop();
     if (m_rearView)    m_rearView->stop();
     if (m_userCapture) m_userCapture->stop();
     if (m_rearCapture) m_rearCapture->stop();
 
     delete m_queryModel;
+    delete m_faceEngine;
     delete m_databaseManager;
     delete ui;
 }
@@ -139,6 +156,196 @@ void MainWindow::logEvent(const QString &eventType)
         showDatabaseError(tr("%1 이벤트 저장").arg(eventType), error);
     else
         refreshDatabaseView();
+}
+
+// ---------------- 얼굴 인식 ----------------
+
+void MainWindow::setupFaceRecognition()
+{
+    m_faceEngine = new FaceEngine;
+    QString error;
+    if (!m_faceEngine->initialize(
+            QFileInfo(m_databaseManager->databasePath()).absolutePath() + "/lbph_model.yml",
+            &error)) {
+        QMessageBox::warning(this, tr("얼굴 인식 초기화 실패"), error);
+        ui->grpDriverManage->setEnabled(false);
+        return;
+    }
+    m_faceEngine->setDriverNames(m_databaseManager->driverNames());
+    m_faceEngine->train(*m_databaseManager);
+    m_faceReady = true;
+
+    m_recognizer = new RecognitionThread(m_userCapture, m_faceEngine, 15, this);
+    connect(m_recognizer, &RecognitionThread::sendImage, this,
+            [this](const QImage &image) { showImage(ui->lblCamInternal, image); });
+    connect(m_recognizer, &RecognitionThread::sendStatus, this,
+            [this](const QString &text) { ui->lblRecogResult->setText(tr("인식 결과: %1").arg(text)); });
+    connect(m_recognizer, &RecognitionThread::authConfirmed, this, &MainWindow::onAuthConfirmed);
+    connect(m_recognizer, &RecognitionThread::sampleCaptured, this, &MainWindow::onSampleCaptured);
+    connect(m_recognizer, &RecognitionThread::registerFinished, this, &MainWindow::onRegisterFinished);
+    m_recognizer->start();
+
+    connect(ui->btnRecogToggle, &QPushButton::toggled, this, &MainWindow::toggleRecognition);
+    connect(ui->btnRegisterFace, &QPushButton::clicked, this, &MainWindow::startRegistration);
+    connect(ui->btnDriverList, &QPushButton::clicked, this, &MainWindow::showDriverList);
+
+    statusBar()->showMessage(tr("등록 운전자 %1명 / 얼굴 모델 학습됨: %2")
+                                 .arg(m_databaseManager->listDrivers().size())
+                                 .arg(m_faceEngine->isTrained() ? tr("예") : tr("아니오")), 5000);
+}
+
+void MainWindow::toggleRecognition(bool checked)
+{
+    if (!m_faceReady)
+        return;
+
+    if (checked) {
+        if (!m_faceEngine->isTrained()) {
+            QMessageBox::information(this, tr("안내"),
+                                     tr("등록된 얼굴이 없습니다. 먼저 얼굴을 등록하세요."));
+            ui->btnRecogToggle->setChecked(false);
+            return;
+        }
+        m_userView->setPaused(true);        // 표시 스레드와 화면 충돌 방지
+        m_recognizer->startRecognize();
+        ui->btnRecogToggle->setText(tr("인식 중지"));
+        logEvent(QStringLiteral("FACE_DETECTION_START"));
+    } else {
+        m_recognizer->setIdle();
+        m_userView->setPaused(false);
+        ui->lblRecogResult->setText(tr("인식 결과: -"));
+        ui->btnRecogToggle->setText(tr("인식 시작"));
+    }
+}
+
+void MainWindow::onAuthConfirmed(int driverId, double confidence)
+{
+    QString error;
+    if (!m_databaseManager->insertAuthLog(driverId, confidence, &error)) {
+        showDatabaseError(tr("인증 로그 저장"), error);
+        return;
+    }
+    logEvent(QStringLiteral("FACE_DETECTED"));
+
+    const QString name = m_databaseManager->driverName(driverId);
+    ui->lblAuth->setText(tr("인증: %1").arg(name));
+    statusBar()->showMessage(tr("%1 인증 완료 (score %2)").arg(name).arg(confidence, 0, 'f', 0), 5000);
+
+    // 인증이 끝나면 인식을 멈추고 계기판으로 넘어간다.
+    // setChecked(false) 가 toggleRecognition() 을 호출해 표시 스레드도 되살린다.
+    ui->btnRecogToggle->setChecked(false);
+    ui->lblRecogResult->setText(tr("%1 님 인증 완료").arg(name));
+    setDrivingEnabled(true);
+    goToPage(ui->pageDashboard);
+}
+
+void MainWindow::startRegistration()
+{
+    if (!m_faceReady)
+        return;
+
+    const QString name = ui->editDriverName->text().trimmed();
+    if (name.isEmpty()) {
+        QMessageBox::warning(this, tr("안내"), tr("운전자 이름을 입력하세요."));
+        return;
+    }
+    if (m_recognizer->mode() == RecognitionThread::Register)
+        return;
+
+    QString error;
+    m_registerDriverId = m_databaseManager->addDriver(name, &error);
+    if (m_registerDriverId < 0) {
+        QMessageBox::critical(this, tr("등록 실패"), error);
+        return;
+    }
+    m_registerName = name;
+
+    ui->btnRecogToggle->setChecked(false);
+    ui->btnRecogToggle->setEnabled(false);
+    m_userView->setPaused(true);
+    m_recognizer->startRegister(kSampleTarget);
+    ui->lblRecogResult->setText(tr("정면을 봐주세요 (0/%1)").arg(kSampleTarget));
+}
+
+void MainWindow::onSampleCaptured(const cv::Mat &grayFace, int count, int target)
+{
+    // DB 쓰기와 파일 저장은 UI 스레드에서 처리한다
+    const QString dir = QStringLiteral("%1/%2").arg(m_databaseManager->faceDirectory())
+                            .arg(m_registerDriverId);
+    QDir().mkpath(dir);
+    const QString path = QStringLiteral("%1/%2.png").arg(dir)
+                             .arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz"));
+
+    if (!cv::imwrite(path.toStdString(), grayFace)) {
+        showDatabaseError(tr("얼굴 샘플 저장"), tr("이미지 파일 저장 실패: %1").arg(path));
+        return;
+    }
+    QString error;
+    if (!m_databaseManager->insertFaceSample(m_registerDriverId, path, &error)) {
+        showDatabaseError(tr("얼굴 샘플 저장"), error);
+        return;
+    }
+    ui->lblRecogResult->setText(tr("%1 등록 중 %2/%3").arg(m_registerName).arg(count).arg(target));
+}
+
+void MainWindow::onRegisterFinished(int count)
+{
+    ui->btnRecogToggle->setEnabled(true);
+    m_userView->setPaused(false);
+    retrainFaceModel();
+    logEvent(QStringLiteral("DRIVER_REGISTERED"));
+    ui->editDriverName->clear();
+    ui->lblRecogResult->setText(tr("인식 결과: -"));
+    QMessageBox::information(this, tr("등록 완료"),
+                             tr("'%1' 얼굴 샘플 %2장을 등록했습니다.").arg(m_registerName).arg(count));
+}
+
+void MainWindow::showDriverList()
+{
+    DriverListDialog dialog(m_databaseManager, this);
+    connect(&dialog, &DriverListDialog::driverDeleted, this, &MainWindow::retrainFaceModel);
+    dialog.exec();
+}
+
+void MainWindow::goToPage(QWidget *page)
+{
+    const int index = ui->stackMain->indexOf(page);
+    if (index < 0)
+        return;
+    ui->navList->setCurrentRow(index);   // nav 선택이 바뀌면 stackMain 도 따라간다
+}
+
+void MainWindow::setDrivingEnabled(bool enabled)
+{
+    m_authenticated = enabled;
+
+    // 인증 = 시동. 인증 전에는 운전자 인식 탭 외에는 아무것도 쓸 수 없다.
+    // 페이지 단위로 잠그므로 나중에 위젯을 추가해도 이 함수는 그대로 둔다.
+    for (int i = 0; i < ui->stackMain->count(); ++i) {
+        QWidget *page = ui->stackMain->widget(i);
+        if (page == ui->pageDriver)      // 인증 화면은 항상 열어둔다
+            continue;
+        page->setEnabled(enabled);
+
+        // 잠긴 페이지는 목록에서도 눌리지 않게 한다
+        if (QListWidgetItem *item = ui->navList->item(i)) {
+            Qt::ItemFlags flags = item->flags();
+            flags.setFlag(Qt::ItemIsEnabled, enabled);
+            item->setFlags(flags);
+        }
+    }
+
+    ui->lblMode->setText(enabled ? tr("모드: 수동") : tr("모드: 시동 꺼짐 (미인증)"));
+    if (!enabled)
+        ui->lblAuth->setText(tr("인증: 미인증"));
+}
+
+void MainWindow::retrainFaceModel()
+{
+    QString error;
+    const bool ok = m_faceEngine->train(*m_databaseManager, &error);
+    m_faceEngine->setDriverNames(m_databaseManager->driverNames());
+    statusBar()->showMessage(ok ? tr("얼굴 모델 재학습 완료") : error, 5000);
 }
 
 void MainWindow::queryDatabase()

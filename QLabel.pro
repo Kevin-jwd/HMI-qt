@@ -11,7 +11,8 @@ msvc: QMAKE_CXXFLAGS += /utf-8
 win32 {
     OPENCV_ROOT = C:/msys64/ucrt64
     INCLUDEPATH += $$OPENCV_ROOT/include/opencv4
-    LIBS += -L$$OPENCV_ROOT/lib -lopencv_core -lopencv_imgproc -lopencv_videoio
+    LIBS += -L$$OPENCV_ROOT/lib -lopencv_core -lopencv_imgproc -lopencv_videoio \
+            -lopencv_objdetect -lopencv_face -lopencv_imgcodecs
 }
 unix {
     CONFIG    += link_pkgconfig
@@ -25,6 +26,9 @@ unix {
 
 SOURCES += \
     capturethread.cpp \
+    driverlistdialog.cpp \
+    faceengine.cpp \
+    recognitionthread.cpp \
     databasemanager.cpp \
     displaythread.cpp \
     main.cpp \
@@ -32,6 +36,9 @@ SOURCES += \
 
 HEADERS += \
     capturethread.h \
+    driverlistdialog.h \
+    faceengine.h \
+    recognitionthread.h \
     databasemanager.h \
     displaythread.h \
     framesource.h \
