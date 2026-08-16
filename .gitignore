@@ -1,0 +1,46 @@
+# ---- 빌드 산출물 ----
+build/
+build-*/
+debug/
+release/
+*.o
+*.obj
+*.exe
+*.dll
+*.a
+*.so
+*.dylib
+
+# ---- qmake 생성 파일 ----
+Makefile
+Makefile.Debug
+Makefile.Release
+.qmake.stash
+*.pro.user
+*.pro.user.*
+object_script.*
+
+# ---- uic / moc / rcc 자동 생성 ----
+ui_*.h
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+*.moc
+
+# ---- CMake (쓰는 경우) ----
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# ---- 실행 시 생성되는 데이터 ----
+driver.db
+faces/
+lbph_model.yml
+sample_user/
+sample_rear*
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
