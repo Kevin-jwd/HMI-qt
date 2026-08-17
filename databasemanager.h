@@ -28,7 +28,8 @@ public:
     bool openDatabase(QString *errorMessage = nullptr);
     bool initializeSchema(QString *errorMessage = nullptr);
     bool insertSystemEvent(const QString &eventType, QString *errorMessage = nullptr);
-    bool insertVehicleLog(const QString &direction, int speed, QString *errorMessage = nullptr);
+    bool insertVehicleLog(const QString &direction, int speed, int distanceCm,
+                          QString *errorMessage = nullptr);
     bool insertSensorLog(double temperature, double humidity, const QString &fanState,
                          QString *errorMessage = nullptr);
     QSqlQueryModel *queryLogs(int logType, const QDateTime &start, const QDateTime &end,
@@ -53,6 +54,7 @@ public:
 
 private:
     QString resolveDatabasePath() const;
+    bool migrateSchema(QString *errorMessage);   // 기존 DB 에 새 컬럼 추가
     QSqlDatabase m_database;
 };
 

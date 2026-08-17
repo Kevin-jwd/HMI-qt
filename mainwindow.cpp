@@ -5,6 +5,7 @@
 #include "driverlistdialog.h"
 #include "faceengine.h"
 #include "recognitionthread.h"
+#include "seriallink.h"
 #include "ui_mainwindow.h"
 
 #include <QDate>
@@ -14,16 +15,15 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
+#include <QProgressBar>
 #include <QListWidget>
 #include <QPixmap>
 #include <opencv2/imgcodecs.hpp>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QRandomGenerator>
 #include <QSqlQueryModel>
 #include <QStatusBar>
-#include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -51,20 +51,12 @@ MainWindow::MainWindow(QWidget *parent)
         return;
     }
 
-    m_sensorTimer = new QTimer(this);
-    connect(m_sensorTimer, &QTimer::timeout, this, &MainWindow::generateSensorSnapshot);
-    m_sensorTimer->start(1000);
-
-    m_vehicleTimer = new QTimer(this);
-    connect(m_vehicleTimer, &QTimer::timeout, this, &MainWindow::generateVehicleState);
-    m_vehicleTimer->start(2000);
-
-    generateSensorSnapshot();
-    generateVehicleState();
     queryDatabase();
 
     setupCameras();
     setupFaceRecognition();
+    setupSerial();
+    setupDriveButtons();
 
     // 시나리오: 탑승 -> 운전자 인식 -> 인증 완료 -> 계기판
     // 시작 화면은 운전자 인식 탭이다. ('인식 시작' 버튼이 문 열림을 대신한다)
@@ -307,6 +299,156 @@ void MainWindow::showDriverList()
     dialog.exec();
 }
 
+// ---------------- STM32 연동 ----------------
+
+void MainWindow::setupSerial()
+{
+    m_serial = new SerialLink(this);
+
+    connect(m_serial, &SerialLink::connected, this, &MainWindow::onSerialConnected);
+    connect(m_serial, &SerialLink::disconnected, this, &MainWindow::onSerialDisconnected);
+    connect(m_serial, &SerialLink::sensorReceived, this, &MainWindow::onSensorReceived);
+    connect(m_serial, &SerialLink::driveStateReceived, this, &MainWindow::onDriveStateReceived);
+    connect(m_serial, &SerialLink::fanStateReceived, this, &MainWindow::onFanStateReceived);
+    connect(ui->btnHazard, &QPushButton::toggled, this, &MainWindow::onHazardToggled);
+
+    m_serial->open();   // 포트 이름을 비우면 ST-Link 가상 COM 을 자동 탐색
+}
+
+void MainWindow::onSerialConnected(const QString &portName)
+{
+    logEvent(QStringLiteral("STM32_CONNECTED"));
+    statusBar()->showMessage(tr("STM32 연결됨: %1").arg(portName), 5000);
+
+    // 현재 비상등 상태를 STM32 에 맞춰 보낸다
+    m_serial->sendHazard(ui->btnHazard->isChecked());
+}
+
+void MainWindow::onSerialDisconnected(const QString &reason)
+{
+    logEvent(QStringLiteral("SERIAL_ERROR"));
+    statusBar()->showMessage(tr("STM32 연결 실패/해제: %1").arg(reason), 8000);
+}
+
+void MainWindow::onSensorReceived(double temperature, double humidity,
+                                  int distanceCm, int speedPercent)
+{
+    m_speedPercent = speedPercent;
+    m_distanceCm = distanceCm;
+    updateDistance(distanceCm);
+    logVehicleState();
+
+    ui->lblCabinTemp->setText(QStringLiteral("%1 °C").arg(temperature, 0, 'f', 1));
+    ui->lblHumidity->setText(tr("습도 %1 %").arg(humidity, 0, 'f', 1));
+    ui->lblStripTemp->setText(QStringLiteral("%1 °C / %2 %")
+                                  .arg(temperature, 0, 'f', 1).arg(humidity, 0, 'f', 1));
+
+    // $D 는 500ms 주기로 오지만 DB 는 1초에 한 번만 남긴다
+    const QDateTime now = QDateTime::currentDateTime();
+    if (m_lastSensorLog.isValid() && m_lastSensorLog.msecsTo(now) < 1000)
+        return;
+    m_lastSensorLog = now;
+
+    QString error;
+    if (!m_databaseManager->insertSensorLog(temperature, humidity, m_fanState, &error))
+        showDatabaseError(tr("센서 로그 저장"), error);
+    else
+        refreshDatabaseView();
+}
+
+void MainWindow::updateDistance(int distanceCm)
+{
+    // 초음파는 후방 1개만 사용한다.
+    // (UI 의 objectName 은 lblUltraFront / pbUltraFront 지만 표시 항목은 '후방'이다)
+    const bool valid = (distanceCm > 0);
+    const QString text = valid ? tr("%1 cm").arg(distanceCm) : tr("--- cm");
+
+    ui->lblUltraFront->setText(text);
+    ui->pbUltraFront->setValue(qBound(ui->pbUltraFront->minimum(), distanceCm,
+                                      ui->pbUltraFront->maximum()));
+
+    ui->lblRearWarning->setText(tr("후방 거리: %1").arg(text));
+    // 30cm 이내면 경고 색으로 표시한다
+    ui->lblRearWarning->setStyleSheet(
+        (valid && distanceCm <= 30) ? QStringLiteral("color: #e04b2a; font-weight: bold;")
+                                    : QString());
+}
+
+void MainWindow::setupDriveButtons()
+{
+    // 현재는 좌/우회전만 STM32 로 보낸다.
+    // $M,L / $M,R 을 받으면 STM32 가 해당 방향 LED 를 점멸시킨다 (led.c 의 DRIVE_LEFT/RIGHT)
+    connect(ui->btnLeft,  &QPushButton::clicked, this, [this]() { sendDrive('L'); });
+    connect(ui->btnRight, &QPushButton::clicked, this, [this]() { sendDrive('R'); });
+
+    // 전진/후진/정지는 모터 연동이 준비되면 아래 주석을 풀면 된다
+    // connect(ui->btnUp,   &QPushButton::clicked, this, [this]() { sendDrive('F'); });
+    // connect(ui->btnDown, &QPushButton::clicked, this, [this]() { sendDrive('B'); });
+    // connect(ui->btnStop, &QPushButton::clicked, this, [this]() { sendDrive('S'); });
+}
+
+void MainWindow::sendDrive(char direction)
+{
+    if (!m_authenticated) {   // 미인증 상태에서는 주행 명령을 보내지 않는다
+        statusBar()->showMessage(tr("운전자 인증이 필요합니다"), 3000);
+        return;
+    }
+    m_serial->sendDrive(direction);
+    // 실제 상태 표시는 STM32 가 보내는 $V 응답으로 갱신한다
+}
+
+void MainWindow::onDriveStateReceived(char direction)
+{
+    switch (direction) {
+    case 'F': m_direction = QStringLiteral("FWD");   break;
+    case 'B': m_direction = QStringLiteral("BACK");  break;
+    case 'L': m_direction = QStringLiteral("LEFT");  break;
+    case 'R': m_direction = QStringLiteral("RIGHT"); break;
+    case 'S': m_direction = QStringLiteral("STOP");  break;
+    default: return;
+    }
+    ui->lblSpeed->setText(tr("%1  %2 cm/s").arg(m_direction).arg(m_speedPercent));
+    logVehicleState();
+}
+
+void MainWindow::onFanStateReceived(int mode, bool running)
+{
+    m_fanState = running ? QStringLiteral("ON") : QStringLiteral("OFF");
+
+    // 0=OFF 1=ON 2=AUTO. UI 버튼 상태를 STM32 보고에 맞춘다
+    QPushButton *button = (mode == 1) ? ui->btnFanOn : (mode == 2) ? ui->btnFanAuto : ui->btnFanOff;
+    if (button && !button->isChecked())
+        button->setChecked(true);
+}
+
+void MainWindow::logVehicleState()
+{
+    if (!m_databaseReady)
+        return;
+
+    // 방향이 바뀌었거나 속도가 5% 이상 달라졌을 때만 기록한다.
+    // ($D 는 500ms 마다 오므로 매번 저장하면 로그가 의미 없이 쌓인다)
+    if (m_loggedSpeed >= 0 && qAbs(m_speedPercent - m_loggedSpeed) < 5
+            && m_direction == m_lastLoggedDirection) {
+        return;
+    }
+    m_loggedSpeed = m_speedPercent;
+    m_lastLoggedDirection = m_direction;
+
+    QString error;
+    if (!m_databaseManager->insertVehicleLog(m_direction, m_speedPercent, m_distanceCm, &error))
+        showDatabaseError(tr("차량 로그 저장"), error);
+    else
+        refreshDatabaseView();
+}
+
+void MainWindow::onHazardToggled(bool checked)
+{
+    m_serial->sendHazard(checked);
+    ui->btnHazard->setText(checked ? tr("비상등 끄기") : tr("비상등"));
+    statusBar()->showMessage(checked ? tr("비상등 ON") : tr("비상등 OFF"), 3000);
+}
+
 void MainWindow::goToPage(QWidget *page)
 {
     const int index = ui->stackMain->indexOf(page);
@@ -364,55 +506,6 @@ void MainWindow::queryDatabase()
     ui->resultCountLabel->setText(tr("조회 결과: %1건").arg(m_queryModel->rowCount()));
 }
 
-void MainWindow::generateSensorSnapshot()
-{
-    if (!m_databaseReady)
-        return;
-
-    QRandomGenerator *random = QRandomGenerator::global();
-    m_dummyTemperature += (random->bounded(11) - 5) / 10.0;
-    m_dummyHumidity += (random->bounded(11) - 5) / 10.0;
-    m_dummyTemperature = qBound(18.0, m_dummyTemperature, 35.0);
-    m_dummyHumidity = qBound(30.0, m_dummyHumidity, 80.0);
-    if (random->bounded(10) == 0)
-        m_dummyFanState = (m_dummyFanState == QStringLiteral("ON"))
-                ? QStringLiteral("OFF") : QStringLiteral("ON");
-
-    QString error;
-    if (!m_databaseManager->insertSensorLog(m_dummyTemperature, m_dummyHumidity,
-                                             m_dummyFanState, &error)) {
-        showDatabaseError(tr("센서 로그 저장"), error);
-        return;
-    }
-    refreshDatabaseView();
-}
-
-void MainWindow::generateVehicleState()
-{
-    if (!m_databaseReady)
-        return;
-
-    static const QStringList directions = {
-        QStringLiteral("FWD"), QStringLiteral("BACK"), QStringLiteral("LEFT"),
-        QStringLiteral("RIGHT"), QStringLiteral("STOP")
-    };
-    QRandomGenerator *random = QRandomGenerator::global();
-    const QString nextDirection = directions.at(random->bounded(directions.size()));
-    const int nextSpeed = nextDirection == QStringLiteral("STOP") ? 0 : random->bounded(10, 81);
-
-    if (nextDirection == m_dummyDirection && nextSpeed == m_dummySpeed)
-        return;
-    m_dummyDirection = nextDirection;
-    m_dummySpeed = nextSpeed;
-
-    QString error;
-    if (!m_databaseManager->insertVehicleLog(m_dummyDirection, m_dummySpeed, &error)) {
-        showDatabaseError(tr("차량 로그 저장"), error);
-        return;
-    }
-    refreshDatabaseView();
-}
-
 void MainWindow::refreshDatabaseView()
 {
     if (ui->stackMain->currentWidget() == ui->databaseTab)
@@ -422,10 +515,6 @@ void MainWindow::refreshDatabaseView()
 void MainWindow::showDatabaseError(const QString &operation, const QString &error)
 {
     m_databaseReady = false;
-    if (m_sensorTimer)
-        m_sensorTimer->stop();
-    if (m_vehicleTimer)
-        m_vehicleTimer->stop();
     QMessageBox::critical(this, tr("DB 저장 오류"), tr("%1에 실패했습니다.\n%2").arg(operation, error));
 }
 

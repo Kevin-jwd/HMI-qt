@@ -1,4 +1,4 @@
-QT       += core gui sql
+QT       += core gui sql serialport
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -26,6 +26,7 @@ unix {
 
 SOURCES += \
     capturethread.cpp \
+    seriallink.cpp \
     driverlistdialog.cpp \
     faceengine.cpp \
     recognitionthread.cpp \
@@ -36,6 +37,7 @@ SOURCES += \
 
 HEADERS += \
     capturethread.h \
+    seriallink.h \
     driverlistdialog.h \
     faceengine.h \
     recognitionthread.h \

@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='UTF-8'?>
+<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -18,7 +18,7 @@
     <item>
      <widget class="QFrame" name="statusStrip">
       <property name="frameShape">
-       <enum>QFrame::StyledPanel</enum>
+       <enum>QFrame::Shape::StyledPanel</enum>
       </property>
       <layout class="QHBoxLayout" name="layStatusStrip">
        <item>
@@ -37,7 +37,7 @@
        <item>
         <widget class="Line" name="lineStatus">
          <property name="orientation">
-          <enum>Qt::Vertical</enum>
+          <enum>Qt::Orientation::Vertical</enum>
          </property>
         </widget>
        </item>
@@ -57,7 +57,7 @@
        <item>
         <spacer name="spStatusStrip">
          <property name="orientation">
-          <enum>Qt::Horizontal</enum>
+          <enum>Qt::Orientation::Horizontal</enum>
          </property>
          <property name="sizeHint" stdset="0">
           <size>
@@ -130,7 +130,7 @@
       <item>
        <widget class="QStackedWidget" name="stackMain">
         <property name="currentIndex">
-         <number>0</number>
+         <number>5</number>
         </property>
         <widget class="QWidget" name="pageDashboard">
          <layout class="QVBoxLayout" name="layDashboard">
@@ -152,7 +152,7 @@
                 <string>--.- °C</string>
                </property>
                <property name="alignment">
-                <set>Qt::AlignCenter</set>
+                <set>Qt::AlignmentFlag::AlignCenter</set>
                </property>
               </widget>
              </item>
@@ -162,7 +162,7 @@
                 <string>습도 -- %</string>
                </property>
                <property name="alignment">
-                <set>Qt::AlignCenter</set>
+                <set>Qt::AlignmentFlag::AlignCenter</set>
                </property>
               </widget>
              </item>
@@ -187,7 +187,7 @@
                 <string>0 cm/s</string>
                </property>
                <property name="alignment">
-                <set>Qt::AlignCenter</set>
+                <set>Qt::AlignmentFlag::AlignCenter</set>
                </property>
               </widget>
              </item>
@@ -213,41 +213,7 @@
              <string>초음파 거리</string>
             </property>
             <layout class="QGridLayout" name="layUltrasonic">
-             <item row="0" column="0">
-              <widget class="QLabel" name="lblUltraLeftName">
-               <property name="text">
-                <string>좌측</string>
-               </property>
-              </widget>
-             </item>
              <item row="0" column="1">
-              <widget class="QProgressBar" name="pbUltraLeft">
-               <property name="maximum">
-                <number>200</number>
-               </property>
-               <property name="value">
-                <number>0</number>
-               </property>
-               <property name="textVisible">
-                <bool>false</bool>
-               </property>
-              </widget>
-             </item>
-             <item row="0" column="2">
-              <widget class="QLabel" name="lblUltraLeft">
-               <property name="text">
-                <string>--- cm</string>
-               </property>
-              </widget>
-             </item>
-             <item row="1" column="0">
-              <widget class="QLabel" name="lblUltraFrontName">
-               <property name="text">
-                <string>전방</string>
-               </property>
-              </widget>
-             </item>
-             <item row="1" column="1">
               <widget class="QProgressBar" name="pbUltraFront">
                <property name="maximum">
                 <number>200</number>
@@ -260,35 +226,15 @@
                </property>
               </widget>
              </item>
-             <item row="1" column="2">
+             <item row="0" column="0">
+              <widget class="QLabel" name="lblUltraFrontName">
+               <property name="text">
+                <string>후방</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="2">
               <widget class="QLabel" name="lblUltraFront">
-               <property name="text">
-                <string>--- cm</string>
-               </property>
-              </widget>
-             </item>
-             <item row="2" column="0">
-              <widget class="QLabel" name="lblUltraRightName">
-               <property name="text">
-                <string>우측</string>
-               </property>
-              </widget>
-             </item>
-             <item row="2" column="1">
-              <widget class="QProgressBar" name="pbUltraRight">
-               <property name="maximum">
-                <number>200</number>
-               </property>
-               <property name="value">
-                <number>0</number>
-               </property>
-               <property name="textVisible">
-                <bool>false</bool>
-               </property>
-              </widget>
-             </item>
-             <item row="2" column="2">
-              <widget class="QLabel" name="lblUltraRight">
                <property name="text">
                 <string>--- cm</string>
                </property>
@@ -300,7 +246,7 @@
           <item>
            <spacer name="spDashboard">
             <property name="orientation">
-             <enum>Qt::Vertical</enum>
+             <enum>Qt::Orientation::Vertical</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
@@ -329,13 +275,13 @@
                 </size>
                </property>
                <property name="frameShape">
-                <enum>QFrame::Box</enum>
+                <enum>QFrame::Shape::Box</enum>
                </property>
                <property name="text">
                 <string>NO SIGNAL</string>
                </property>
                <property name="alignment">
-                <set>Qt::AlignCenter</set>
+                <set>Qt::AlignmentFlag::AlignCenter</set>
                </property>
               </widget>
              </item>
@@ -351,7 +297,7 @@
                <item>
                 <spacer name="spCamRear">
                  <property name="orientation">
-                  <enum>Qt::Horizontal</enum>
+                  <enum>Qt::Orientation::Horizontal</enum>
                  </property>
                  <property name="sizeHint" stdset="0">
                   <size>
@@ -395,13 +341,13 @@
                 </size>
                </property>
                <property name="frameShape">
-                <enum>QFrame::Box</enum>
+                <enum>QFrame::Shape::Box</enum>
                </property>
                <property name="text">
                 <string>대기 중</string>
                </property>
                <property name="alignment">
-                <set>Qt::AlignCenter</set>
+                <set>Qt::AlignmentFlag::AlignCenter</set>
                </property>
               </widget>
              </item>
@@ -411,7 +357,7 @@
                 <string>인식 결과: -</string>
                </property>
                <property name="alignment">
-                <set>Qt::AlignCenter</set>
+                <set>Qt::AlignmentFlag::AlignCenter</set>
                </property>
               </widget>
              </item>
@@ -471,7 +417,7 @@
           <item>
            <spacer name="spDriver">
             <property name="orientation">
-             <enum>Qt::Vertical</enum>
+             <enum>Qt::Orientation::Vertical</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
@@ -598,7 +544,7 @@
           <item>
            <spacer name="spControl">
             <property name="orientation">
-             <enum>Qt::Vertical</enum>
+             <enum>Qt::Orientation::Vertical</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
@@ -722,7 +668,7 @@
              <item>
               <spacer name="spThreshold">
                <property name="orientation">
-                <enum>Qt::Horizontal</enum>
+                <enum>Qt::Orientation::Horizontal</enum>
                </property>
                <property name="sizeHint" stdset="0">
                 <size>
@@ -738,7 +684,7 @@
           <item>
            <spacer name="spEnv">
             <property name="orientation">
-             <enum>Qt::Vertical</enum>
+             <enum>Qt::Orientation::Vertical</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
@@ -754,24 +700,102 @@
          <layout class="QVBoxLayout" name="databaseLayout">
           <item>
            <widget class="QGroupBox" name="searchGroup">
-            <property name="title"><string>조회 조건</string></property>
+            <property name="title">
+             <string>조회 조건</string>
+            </property>
             <layout class="QGridLayout" name="searchLayout">
-             <item row="0" column="0"><widget class="QLabel" name="startLabel"><property name="text"><string>시작 시간</string></property></widget></item>
-             <item row="0" column="1"><widget class="QDateTimeEdit" name="startDateTimeEdit"><property name="displayFormat"><string>yyyy-MM-dd HH:mm:ss</string></property><property name="calendarPopup"><bool>true</bool></property></widget></item>
-             <item row="0" column="2"><widget class="QLabel" name="endLabel"><property name="text"><string>종료 시간</string></property></widget></item>
-             <item row="0" column="3"><widget class="QDateTimeEdit" name="endDateTimeEdit"><property name="displayFormat"><string>yyyy-MM-dd HH:mm:ss</string></property><property name="calendarPopup"><bool>true</bool></property></widget></item>
-             <item row="1" column="0"><widget class="QLabel" name="logTypeLabel"><property name="text"><string>데이터 종류</string></property></widget></item>
-             <item row="1" column="1" colspan="2"><widget class="QComboBox" name="logTypeComboBox">
-              <item><property name="text"><string>시스템 이벤트</string></property></item>
-              <item><property name="text"><string>차량 로그</string></property></item>
-              <item><property name="text"><string>환경 로그</string></property></item>
-             <item><property name="text"><string>인증 이력</string></property></item></widget></item>
-             <item row="1" column="3"><widget class="QPushButton" name="searchButton"><property name="text"><string>조회</string></property></widget></item>
+             <item row="0" column="0">
+              <widget class="QLabel" name="startLabel">
+               <property name="text">
+                <string>시작 시간</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QDateTimeEdit" name="startDateTimeEdit">
+               <property name="displayFormat">
+                <string>yyyy-MM-dd HH:mm:ss</string>
+               </property>
+               <property name="calendarPopup">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="2">
+              <widget class="QLabel" name="endLabel">
+               <property name="text">
+                <string>종료 시간</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="3">
+              <widget class="QDateTimeEdit" name="endDateTimeEdit">
+               <property name="displayFormat">
+                <string>yyyy-MM-dd HH:mm:ss</string>
+               </property>
+               <property name="calendarPopup">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="logTypeLabel">
+               <property name="text">
+                <string>데이터 종류</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1" colspan="2">
+              <widget class="QComboBox" name="logTypeComboBox">
+               <item>
+                <property name="text">
+                 <string>시스템 이벤트</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>차량 로그</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>환경 로그</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>인증 이력</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item row="1" column="3">
+              <widget class="QPushButton" name="searchButton">
+               <property name="text">
+                <string>조회</string>
+               </property>
+              </widget>
+             </item>
             </layout>
            </widget>
           </item>
-          <item><widget class="QTableView" name="resultTableView"><property name="alternatingRowColors"><bool>true</bool></property><property name="selectionBehavior"><enum>QAbstractItemView::SelectRows</enum></property></widget></item>
-          <item><widget class="QLabel" name="resultCountLabel"><property name="text"><string>조회 결과: 0건</string></property></widget></item>
+          <item>
+           <widget class="QTableView" name="resultTableView">
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
+            <property name="selectionBehavior">
+             <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="resultCountLabel">
+            <property name="text">
+             <string>조회 결과: 0건</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </widget>
@@ -780,18 +804,28 @@
     </item>
    </layout>
   </widget>
-  <widget class="QStatusBar" name="statusbar" />
+  <widget class="QStatusBar" name="statusbar"/>
  </widget>
- <resources />
+ <resources/>
  <connections>
   <connection>
    <sender>navList</sender>
    <signal>currentRowChanged(int)</signal>
    <receiver>stackMain</receiver>
    <slot>setCurrentIndex(int)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>20</x>
+     <y>20</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>20</x>
+     <y>20</y>
+    </hint>
+   </hints>
   </connection>
  </connections>
  <buttongroups>
-  <buttongroup name="groupFan" />
+  <buttongroup name="groupFan"/>
  </buttongroups>
 </ui>

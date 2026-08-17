@@ -1,6 +1,7 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include <QDateTime>
 #include <QMainWindow>
 #include <QSize>
 #include <QString>
@@ -11,11 +12,12 @@ class DatabaseManager;
 class DisplayThread;
 class FaceEngine;
 class RecognitionThread;
+class SerialLink;
 class QCloseEvent;
 class QImage;
 class QLabel;
+class QProgressBar;
 class QSqlQueryModel;
-class QTimer;
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -55,9 +57,20 @@ private:
     void showDriverList();
     void retrainFaceModel();
     void goToPage(QWidget *page);   // nav 선택과 페이지 전환을 함께 처리
+
+    // ---- STM32 연동 ----
+    void setupSerial();
+    void onSerialConnected(const QString &portName);
+    void onSerialDisconnected(const QString &reason);
+    void onSensorReceived(double temperature, double humidity, int distanceCm, int speedPercent);
+    void updateDistance(int distanceCm);    // 계기판 + 후방 카메라 탭에 동시 표시
+    void setupDriveButtons();               // 좌/우회전 버튼 -> $M 명령
+    void sendDrive(char direction);
+    void onDriveStateReceived(char direction);
+    void onFanStateReceived(int mode, bool running);
+    void onHazardToggled(bool checked);
+    void logVehicleState();
     void setDrivingEnabled(bool enabled);   // 미인증 상태에서 주행 조작 차단
-    void generateSensorSnapshot();
-    void generateVehicleState();
     void refreshDatabaseView();
     void showDatabaseError(const QString &operation, const QString &error);
 
@@ -77,14 +90,19 @@ private:
     int m_registerDriverId = -1;
     bool m_faceReady = false;
     bool m_authenticated = false;
+
+    SerialLink *m_serial = nullptr;
+    QDateTime m_lastSensorLog;      // 센서 로그 저장 주기 제한용
+
+    // STM32 에서 받은 최신 상태
+    QString m_fanState = QStringLiteral("OFF");   // $C 로 갱신
+    QString m_direction = QStringLiteral("STOP"); // $V 로 갱신
+    int m_speedPercent = 0;                       // $D 로 갱신
+    int m_distanceCm = 0;                         // $D 로 갱신 (후방 초음파)
+    int m_loggedSpeed = -1;                       // 마지막으로 DB 에 남긴 속도
+    QString m_lastLoggedDirection;
+
     QSqlQueryModel *m_queryModel = nullptr;
-    QTimer *m_sensorTimer = nullptr;
-    QTimer *m_vehicleTimer = nullptr;
-    double m_dummyTemperature = 26.0;
-    double m_dummyHumidity = 55.0;
-    QString m_dummyFanState = QStringLiteral("OFF");
-    QString m_dummyDirection;
-    int m_dummySpeed = -1;
     bool m_databaseReady = false;
     bool m_stopEventSaved = false;
 };

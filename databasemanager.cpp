@@ -43,7 +43,7 @@ bool DatabaseManager::initializeSchema(QString *errorMessage)
 {
     const QStringList statements = {
         "CREATE TABLE IF NOT EXISTS system_event (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')), event_type TEXT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS vehicle_log (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')), direction TEXT NOT NULL CHECK(direction IN ('FWD','BACK','LEFT','RIGHT','STOP')), speed INTEGER NOT NULL CHECK(speed BETWEEN 0 AND 100))",
+        "CREATE TABLE IF NOT EXISTS vehicle_log (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')), direction TEXT NOT NULL CHECK(direction IN ('FWD','BACK','LEFT','RIGHT','STOP')), speed INTEGER NOT NULL CHECK(speed BETWEEN 0 AND 100), distance_cm INTEGER)",
         "CREATE TABLE IF NOT EXISTS sensor_log (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')), temperature REAL, humidity REAL, fan_state TEXT NOT NULL CHECK(fan_state IN ('ON','OFF')))",
         "CREATE INDEX IF NOT EXISTS idx_system_event_time ON system_event(timestamp)", "CREATE INDEX IF NOT EXISTS idx_vehicle_log_time ON vehicle_log(timestamp)",
         "CREATE INDEX IF NOT EXISTS idx_sensor_log_time ON sensor_log(timestamp)",
@@ -60,6 +60,38 @@ bool DatabaseManager::initializeSchema(QString *errorMessage)
                 *errorMessage = query.lastError().text();
             return false;
         }
+    }
+    return migrateSchema(errorMessage);
+}
+
+/*
+ * CREATE TABLE IF NOT EXISTS 는 이미 있는 테이블에 컬럼을 추가하지 않는다.
+ * 예전 버전으로 만든 DB 파일을 그대로 쓰는 경우를 위해 부족한 컬럼만 채운다.
+ */
+bool DatabaseManager::migrateSchema(QString *errorMessage)
+{
+    QSqlQuery info(m_database);
+    if (!info.exec(QStringLiteral("PRAGMA table_info(vehicle_log)"))) {
+        if (errorMessage)
+            *errorMessage = info.lastError().text();
+        return false;
+    }
+
+    bool hasDistance = false;
+    while (info.next()) {
+        if (info.value(1).toString() == QLatin1String("distance_cm")) {
+            hasDistance = true;
+            break;
+        }
+    }
+    if (hasDistance)
+        return true;
+
+    QSqlQuery alter(m_database);
+    if (!alter.exec(QStringLiteral("ALTER TABLE vehicle_log ADD COLUMN distance_cm INTEGER"))) {
+        if (errorMessage)
+            *errorMessage = alter.lastError().text();
+        return false;
     }
     return true;
 }
@@ -87,7 +119,8 @@ bool DatabaseManager::insertSystemEvent(const QString &eventType, QString *error
         {eventType}, errorMessage);
 }
 
-bool DatabaseManager::insertVehicleLog(const QString &direction, int speed, QString *errorMessage)
+bool DatabaseManager::insertVehicleLog(const QString &direction, int speed, int distanceCm,
+                                      QString *errorMessage)
 {
     QSqlQuery latest(m_database);
     if (!latest.exec(QStringLiteral(
@@ -102,8 +135,8 @@ bool DatabaseManager::insertVehicleLog(const QString &direction, int speed, QStr
     }
 
     return executeInsert(m_database,
-        QStringLiteral("INSERT INTO vehicle_log (direction, speed) VALUES (?, ?)"),
-        {direction, speed}, errorMessage);
+        QStringLiteral("INSERT INTO vehicle_log (direction, speed, distance_cm) VALUES (?, ?, ?)"),
+        {direction, speed, distanceCm}, errorMessage);
 }
 
 bool DatabaseManager::insertSensorLog(double temperature, double humidity,
@@ -119,7 +152,7 @@ QSqlQueryModel *DatabaseManager::queryLogs(int logType, const QDateTime &start, 
 {
     const QStringList sql = {
         "SELECT id AS 'ID', timestamp AS '시간', event_type AS '이벤트' FROM system_event WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC",
-        "SELECT id AS 'ID', timestamp AS '시간', direction AS '방향', speed AS '속도' FROM vehicle_log WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC",
+        "SELECT id AS 'ID', timestamp AS '시간', direction AS '방향', speed AS '속도', distance_cm AS '후방거리(cm)' FROM vehicle_log WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC",
         "SELECT id AS 'ID', timestamp AS '시간', temperature AS '온도 (°C)', humidity AS '습도 (%)', fan_state AS 'FAN' FROM sensor_log WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC",
         "SELECT a.id AS 'ID', a.timestamp AS '시간', IFNULL(d.name,'(삭제됨)') AS '운전자', ROUND(a.confidence,1) AS 'score' FROM auth_log a LEFT JOIN driver d ON d.id = a.driver_id WHERE a.timestamp BETWEEN ? AND ? ORDER BY a.timestamp DESC" };
     if (logType < 0 || logType >= sql.size()) { if (errorMessage) *errorMessage = QStringLiteral("지원하지 않는 데이터 종류입니다."); return nullptr; }
