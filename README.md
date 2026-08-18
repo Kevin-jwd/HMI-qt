@@ -94,7 +94,6 @@ framesource.h                   프레임 공급자 인터페이스
 faceengine.cpp / .h             Haar 검출 + LBPH 인식
 recognitionthread.cpp / .h      인식/등록 스레드
 driverlistdialog.cpp / .h       운전자 조회·삭제
-dummy_seed.sql                  (선택) 예제 데이터
 ```
 
 다른 PC 에서 받은 `build` 폴더나 `.pro.user` 가 섞여 있으면 지운다.
@@ -197,7 +196,7 @@ static constexpr int kRearCamSrc = 1;   // USB 카메라  -> 후방 카메라
 ### 인증
 
 **인식 시작** 을 누르면 실시간 판별이 시작된다. 아래에 `홍길동 (score 42, 3/5)` 이 표시되는데
-score 는 낮을수록 유사하고, `3/5` 는 연속 일치 횟수다. **5회 연속 같은 사람이면 인증 확정** 되어
+score 는 **낮을수록 유사**하고, `3/5` 는 연속 일치 횟수다. **5회 연속 같은 사람이면 인증 확정** 되어
 `auth_log` 에 기록되고 계기판으로 넘어간다.
 
 ### 운전자 조회
@@ -226,16 +225,109 @@ score 를 확인해서 그 사이에 선을 긋는 것이 좋다.
 
 ## 6. DB 스키마
 
-| 테이블 | 내용 | 저장 시점 |
-|---|---|---|
-| `system_event` | 시스템·카메라·얼굴 이벤트 | 이벤트 발생 시 |
-| `vehicle_log` | 방향, 속도 | 상태 변경 시 |
-| `sensor_log` | 온도, 습도, FAN | 1초 주기 |
-| `driver` | 운전자 이름 | 등록 시 |
-| `face_sample` | 얼굴 이미지 경로 | 등록 시 (1인당 20장) |
-| `auth_log` | 인증 시각, 운전자, score | 인증 확정 시 |
+### 6-1. 테이블 개요
 
-얼굴 이미지는 DB 에 넣지 않고 파일로 저장하며 경로만 기록한다.
+| 테이블명 | 주요 내용 | 저장 시점 | 비고 |
+|---|---|---|---|
+| `system_event` | 시스템·카메라·얼굴 관련 이벤트 로그 | 이벤트 발생 시 | 독립 테이블 |
+| `vehicle_log` | 주행 방향, 속도, 후방 초음파 거리 센서 데이터 | 상태 변경 시 | 독립 테이블 |
+| `sensor_log` | 온/습도 센서 측정값 및 FAN 작동 상태 | 주기적 저장 (예: 1초 간격) | 독립 테이블 |
+| `driver` | 등록된 운전자 기본 정보 | 운전자 등록 시 | 사용자 기본 정보 |
+| `face_sample` | 운전자별 얼굴 학습 샘플 이미지 경로 | 등록 시 (1인당 20장) | `driver` 삭제 시 연쇄 삭제 (`CASCADE`) |
+| `auth_log` | 얼굴 인식 인증 이력 및 신뢰도(Confidence) | 인증 확정 시 | `driver` 삭제 시 `NULL` 처리 (`SET NULL`) |
+
+---
+
+### 6-2. 테이블별 상세 컬럼 명세
+
+#### system_event (시스템 이벤트 로그)
+> 시스템 내부 동작, 카메라 제어, 얼굴 인식 처리 등 개별 이벤트 발생 이력을 기록
+
+| 컬럼명 | 데이터 타입 | 제약 조건 / 기본값 | 설명 |
+|---|---|---|---|
+| `id` | INTEGER | PK, AUTOINCREMENT, NOT NULL | 이벤트 식별자 |
+| `timestamp` | TEXT | NOT NULL, `datetime('now','localtime')` | 이벤트 발생 시각 (`yyyy-MM-dd HH:mm:ss`) |
+| `event_type` | TEXT | NOT NULL | 이벤트 종류 |
+
+* **인덱스**: `idx_system_event_time` (`timestamp`)
+
+<br>
+
+#### vehicle_log (차량 상태 로그)
+> 차량의 주행 상태(방향, 속도) 및 후방 초음파 센서 거리 정보를 기록
+
+| 컬럼명 | 데이터 타입 | 제약 조건 / 기본값 | 설명 |
+|---|---|---|---|
+| `id` | INTEGER | PK, AUTOINCREMENT, NOT NULL | 차량 로그 식별자 |
+| `timestamp` | TEXT | NOT NULL, `datetime('now','localtime')` | 저장 시각 (`yyyy-MM-dd HH:mm:ss`) |
+| `direction` | TEXT (Enum) | NOT NULL | 주행 방향 (`FWD`, `BACK`, `LEFT`, `RIGHT`, `STOP`) |
+| `speed` | INTEGER | NOT NULL, `CHECK(speed BETWEEN 0 AND 100)` | 주행 속도 (0 ~ 100) |
+| `distance_cm` | INTEGER | NULL | 후방 초음파 거리 센서 측정값 (cm) |
+
+* **인덱스**: `idx_vehicle_log_time` (`timestamp`)
+
+<br>
+
+
+#### sensor_log (환경 센서 로그)
+> 온/습도 측정값과 냉각 FAN의 동작 상태를 주기적으로 수집하여 기록
+
+| 컬럼명 | 데이터 타입 | 제약 조건 / 기본값 | 설명 |
+|---|---|---|---|
+| `id` | INTEGER | PK, AUTOINCREMENT, NOT NULL | 센서 로그 식별자 |
+| `timestamp` | TEXT | NOT NULL, `datetime('now','localtime')` | 저장 시각 (`yyyy-MM-dd HH:mm:ss`) |
+| `temperature` | REAL | NULL | 온도 (°C) |
+| `humidity` | REAL | NULL | 습도 (%) |
+| `fan_state` | TEXT (Enum) | NOT NULL | FAN 작동 상태 (`ON`, `OFF`) |
+
+* **인덱스**: `idx_sensor_log_time` (`timestamp`)
+
+<br>
+
+
+#### driver (운전자 정보)
+> 차량 사용자로 등록된 운전자의 식별 정보를 관리합니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 / 기본값 | 설명 |
+|---|---|---|---|
+| `id` | INTEGER | PK, AUTOINCREMENT, NOT NULL | 운전자 식별자 |
+| `name` | TEXT | NOT NULL, UNIQUE | 운전자 이름 (중복 불가) |
+| `created_at` | TEXT | NOT NULL, `datetime('now','localtime')` | 운전자 등록 시각 (`yyyy-MM-dd HH:mm:ss`) |
+
+<br>
+
+
+#### face_sample (얼굴 인식 샘플)
+> 운전자 얼굴 인증 모델 학습 및 비교에 사용되는 이미지 파일 저장 경로를 관리
+
+| 컬럼명 | 데이터 타입 | 제약 조건 / 기본값 | 설명 |
+|---|---|---|---|
+| `id` | INTEGER | PK, AUTOINCREMENT, NOT NULL | 얼굴 샘플 식별자 |
+| `driver_id` | INTEGER | NOT NULL, FK (`driver.id`) | 소속 운전자 ID |
+| `path` | TEXT | NOT NULL | 얼굴 이미지 파일 로컬 저장 경로 |
+| `created_at` | TEXT | NOT NULL, `datetime('now','localtime')` | 샘플 저장 시각 (`yyyy-MM-dd HH:mm:ss`) |
+
+* **인덱스**: `idx_face_sample_driver` (`driver_id`)
+* **외래키 제약**: `ON DELETE CASCADE` (`driver` 삭제 시 관련 샘플 이미지 기록 함께 삭제)
+
+<br>
+
+
+#### auth_log (얼굴 인증 이력)
+> 운전자 인증 시도 시 발생한 시각, 대상 운전자 ID, 인증 신뢰도 값을 기록
+
+| 컬럼명 | 데이터 타입 | 제약 조건 / 기본값 | 설명 |
+|---|---|---|---|
+| `id` | INTEGER | PK, AUTOINCREMENT, NOT NULL | 인증 로그 식별자 |
+| `timestamp` | TEXT | NOT NULL, `datetime('now','localtime')` | 인증 시각 (`yyyy-MM-dd HH:mm:ss`) |
+| `driver_id` | INTEGER | NULL, FK (`driver.id`) | 인증된 운전자 ID |
+| `confidence` | REAL | NULL | 얼굴 인증 판정 신뢰도 점수 |
+
+* **인덱스**: `idx_auth_log_time` (`timestamp`)
+* **외래키 제약**: `ON DELETE SET NULL` (`driver` 삭제 시 이력 보존을 위해 `driver_id`를 `NULL`로 전환)
+
+---
+
 
 ### 이벤트 코드
 
