@@ -402,9 +402,9 @@ void MainWindow::setupDriveButtons()
     connect(ui->btnRight, &QPushButton::clicked, this, [this]() { sendDrive('R'); });
 
     // 전진/후진/정지는 모터 연동이 준비되면 아래 주석을 풀면 된다
-    // connect(ui->btnUp,   &QPushButton::clicked, this, [this]() { sendDrive('F'); });
-    // connect(ui->btnDown, &QPushButton::clicked, this, [this]() { sendDrive('B'); });
-    // connect(ui->btnStop, &QPushButton::clicked, this, [this]() { sendDrive('S'); });
+    connect(ui->btnUp,   &QPushButton::clicked, this, [this]() { sendDrive('F'); });
+    connect(ui->btnDown, &QPushButton::clicked, this, [this]() { sendDrive('B'); });
+    connect(ui->btnStop, &QPushButton::clicked, this, [this]() { sendDrive('S'); });
 }
 
 void MainWindow::sendDrive(char direction)
