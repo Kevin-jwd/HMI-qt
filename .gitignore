@@ -46,6 +46,6 @@ Thumbs.db
 Desktop.ini
 
 # ---- IMG files ----
-.png
-.jpg
-.jpeg
+*.png
+*.jpg
+*.jpeg
