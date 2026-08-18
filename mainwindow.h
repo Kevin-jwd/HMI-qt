@@ -50,6 +50,7 @@ private:
     // ---- 얼굴 인식 ----
     void setupFaceRecognition();
     void toggleRecognition(bool checked);
+    void uncheckRecogToggle();   // 재진입 없이 인식 토글을 해제
     void startRegistration();
     void onSampleCaptured(const cv::Mat &grayFace, int count, int target);
     void onRegisterFinished(int count);
@@ -69,6 +70,10 @@ private:
     void onDriveStateReceived(char direction);
     void onFanStateReceived(int mode, bool running);
     void onHazardToggled(bool checked);
+    void onDoorButtonPressed();   // $B - 차량 문 열림. 카메라를 켜고 인증을 시작한다
+    void startUserCamera();
+    void stopUserCamera();
+    void setDoorOpen(bool open);   // 문 열림 상태에서만 인식/등록 허용
     void logVehicleState();
     void setDrivingEnabled(bool enabled);   // 미인증 상태에서 주행 조작 차단
     void refreshDatabaseView();
@@ -89,6 +94,8 @@ private:
     QString m_registerName;
     int m_registerDriverId = -1;
     bool m_faceReady = false;
+    bool m_doorOpen = false;        // $B 를 받아야 true
+    bool m_userVideoActive = false; // 카메라를 끈 뒤 늦게 도착한 프레임을 무시하기 위한 플래그
     bool m_authenticated = false;
 
     SerialLink *m_serial = nullptr;

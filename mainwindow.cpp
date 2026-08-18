@@ -12,6 +12,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QCloseEvent>
+#include <QDebug>
+#include <QSignalBlocker>
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
@@ -61,7 +63,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 시나리오: 탑승 -> 운전자 인식 -> 인증 완료 -> 계기판
     // 시작 화면은 운전자 인식 탭이다. ('인식 시작' 버튼이 문 열림을 대신한다)
     goToPage(ui->pageDriver);
-    ui->lblRecogResult->setText(tr("인식 시작을 눌러 운전자 인증을 진행하세요"));
+    setDoorOpen(false);   // 차량 버튼($B)을 받기 전에는 카메라도 인식도 시작하지 않는다
     setDrivingEnabled(false);   // 인증 전에는 주행 조작 불가
 }
 
@@ -86,8 +88,10 @@ void MainWindow::setupCameras()
     m_userCapture = new CaptureThread(kUserCamSrc, 640, 480, this);
     m_userView = new DisplayThread(m_userCapture, 30, /*mirror=*/true, this);
     connect(m_userCapture, &CaptureThread::opened, this, &MainWindow::onCameraOpened);
-    connect(m_userView, &DisplayThread::sendImage, this,
-            [this](const QImage &image) { showImage(ui->lblCamInternal, image); });
+    connect(m_userView, &DisplayThread::sendImage, this, [this](const QImage &image) {
+        if (m_userVideoActive)   // 카메라를 끈 뒤 늦게 도착한 프레임은 버린다
+            showImage(ui->lblCamInternal, image);
+    });
 
     // ---- 후방(USB) 카메라 : 후방 카메라 탭 ----
     m_rearCapture = new CaptureThread(kRearCamSrc, 640, 480, this);
@@ -96,7 +100,8 @@ void MainWindow::setupCameras()
     connect(m_rearView, &DisplayThread::sendImage, this,
             [this](const QImage &image) { showImage(ui->lblCamRear, image); });
 
-    m_userCapture->start();
+    // 사용자 카메라는 상시 동작하지 않는다.
+    // $B(문 열림) 또는 인식/등록 버튼을 누를 때만 켠다. 소비자 스레드는 미리 띄워둔다.
     m_userView->start();
     m_rearCapture->start();
     m_rearView->start();
@@ -168,8 +173,10 @@ void MainWindow::setupFaceRecognition()
     m_faceReady = true;
 
     m_recognizer = new RecognitionThread(m_userCapture, m_faceEngine, 15, this);
-    connect(m_recognizer, &RecognitionThread::sendImage, this,
-            [this](const QImage &image) { showImage(ui->lblCamInternal, image); });
+    connect(m_recognizer, &RecognitionThread::sendImage, this, [this](const QImage &image) {
+        if (m_userVideoActive)
+            showImage(ui->lblCamInternal, image);
+    });
     connect(m_recognizer, &RecognitionThread::sendStatus, this,
             [this](const QString &text) { ui->lblRecogResult->setText(tr("인식 결과: %1").arg(text)); });
     connect(m_recognizer, &RecognitionThread::authConfirmed, this, &MainWindow::onAuthConfirmed);
@@ -186,6 +193,15 @@ void MainWindow::setupFaceRecognition()
                                  .arg(m_faceEngine->isTrained() ? tr("예") : tr("아니오")), 5000);
 }
 
+void MainWindow::uncheckRecogToggle()
+{
+    // toggled(bool) 처리 중에 그대로 setChecked() 를 부르면 재진입이 발생한다.
+    // 신호를 막고 상태만 되돌린 뒤 표시를 맞춘다.
+    QSignalBlocker blocker(ui->btnRecogToggle);
+    ui->btnRecogToggle->setChecked(false);
+    ui->btnRecogToggle->setText(tr("인식 시작"));
+}
+
 void MainWindow::toggleRecognition(bool checked)
 {
     if (!m_faceReady)
@@ -193,18 +209,17 @@ void MainWindow::toggleRecognition(bool checked)
 
     if (checked) {
         if (!m_faceEngine->isTrained()) {
-            QMessageBox::information(this, tr("안내"),
-                                     tr("등록된 얼굴이 없습니다. 먼저 얼굴을 등록하세요."));
-            ui->btnRecogToggle->setChecked(false);
+            statusBar()->showMessage(tr("등록된 얼굴이 없습니다. 먼저 얼굴을 등록하세요."), 5000);
+            uncheckRecogToggle();
             return;
         }
+        startUserCamera();                  // 필요할 때만 카메라를 연다
         m_userView->setPaused(true);        // 표시 스레드와 화면 충돌 방지
         m_recognizer->startRecognize();
         ui->btnRecogToggle->setText(tr("인식 중지"));
         logEvent(QStringLiteral("FACE_DETECTION_START"));
     } else {
-        m_recognizer->setIdle();
-        m_userView->setPaused(false);
+        stopUserCamera();
         ui->lblRecogResult->setText(tr("인식 결과: -"));
         ui->btnRecogToggle->setText(tr("인식 시작"));
     }
@@ -226,8 +241,11 @@ void MainWindow::onAuthConfirmed(int driverId, double confidence)
     // 인증이 끝나면 인식을 멈추고 계기판으로 넘어간다.
     // setChecked(false) 가 toggleRecognition() 을 호출해 표시 스레드도 되살린다.
     ui->btnRecogToggle->setChecked(false);
-    ui->lblRecogResult->setText(tr("%1 님 인증 완료").arg(name));
+    setDoorOpen(false);   // 인증이 끝나면 카메라를 끄고 다시 잠근다
     setDrivingEnabled(true);
+
+    QMessageBox::information(this, tr("운전자 인증"),
+                             tr("%1 님, 환영합니다.").arg(name));
     goToPage(ui->pageDashboard);
 }
 
@@ -254,6 +272,7 @@ void MainWindow::startRegistration()
 
     ui->btnRecogToggle->setChecked(false);
     ui->btnRecogToggle->setEnabled(false);
+    startUserCamera();                  // 등록 시작과 함께 카메라를 연다
     m_userView->setPaused(true);
     m_recognizer->startRegister(kSampleTarget);
     ui->lblRecogResult->setText(tr("정면을 봐주세요 (0/%1)").arg(kSampleTarget));
@@ -283,7 +302,7 @@ void MainWindow::onSampleCaptured(const cv::Mat &grayFace, int count, int target
 void MainWindow::onRegisterFinished(int count)
 {
     ui->btnRecogToggle->setEnabled(true);
-    m_userView->setPaused(false);
+    stopUserCamera();          // 표시 정지 -> 카메라 정지 -> 화면 정리 순서로 처리한다
     retrainFaceModel();
     logEvent(QStringLiteral("DRIVER_REGISTERED"));
     ui->editDriverName->clear();
@@ -310,6 +329,7 @@ void MainWindow::setupSerial()
     connect(m_serial, &SerialLink::sensorReceived, this, &MainWindow::onSensorReceived);
     connect(m_serial, &SerialLink::driveStateReceived, this, &MainWindow::onDriveStateReceived);
     connect(m_serial, &SerialLink::fanStateReceived, this, &MainWindow::onFanStateReceived);
+    connect(m_serial, &SerialLink::buttonPressed, this, &MainWindow::onDoorButtonPressed);
     connect(ui->btnHazard, &QPushButton::toggled, this, &MainWindow::onHazardToggled);
 
     m_serial->open();   // 포트 이름을 비우면 ST-Link 가상 COM 을 자동 탐색
@@ -397,6 +417,69 @@ void MainWindow::sendDrive(char direction)
     // 실제 상태 표시는 STM32 가 보내는 $V 응답으로 갱신한다
 }
 
+void MainWindow::startUserCamera()
+{
+    qDebug() << "[CAM] startUserCamera 호출 - 현재 동작중:" << m_userCapture->isRunning();
+    m_userVideoActive = true;
+    if (m_userCapture->isRunning())
+        return;
+
+    // stop() 직후에는 스레드가 아직 종료 중일 수 있다. 확실히 끝난 뒤 다시 시작한다.
+    m_userCapture->wait(2000);
+    m_userCapture->start();
+}
+
+void MainWindow::stopUserCamera()
+{
+    qDebug() << "[CAM] stopUserCamera 호출";
+
+    // 순서가 중요하다. 먼저 표시를 끊어야 마지막 프레임이 화면에 남지 않는다.
+    m_userVideoActive = false;
+    m_userView->setPaused(true);
+    m_recognizer->setIdle();
+
+    if (m_userCapture->isRunning())
+        m_userCapture->stop();
+
+    ui->lblCamInternal->clear();                 // 남아있는 픽스맵 제거
+    ui->lblCamInternal->setText(tr("대기 중"));
+}
+
+void MainWindow::setDoorOpen(bool open)
+{
+    m_doorOpen = open;
+
+    // 문이 열리기 전에는 인식/등록 버튼을 쓸 수 없다
+    ui->btnRecogToggle->setEnabled(open);
+    ui->btnRegisterFace->setEnabled(open);
+    ui->editDriverName->setEnabled(open);
+
+    if (!open) {
+        ui->btnRecogToggle->setChecked(false);
+        stopUserCamera();
+        ui->lblRecogResult->clear();   // 문이 닫힌 상태의 화면은 아무도 보지 않는다
+    }
+}
+
+void MainWindow::onDoorButtonPressed()
+{
+    // 수신 여부를 바로 확인할 수 있도록 먼저 표시한다
+    statusBar()->showMessage(tr("차량 문 열림 신호 수신 ($B)"), 3000);
+    qDebug() << "[$B] 문 열림 버튼 수신 - 인증 상태:" << m_authenticated
+             << "/ 얼굴 모델 학습됨:" << (m_faceEngine && m_faceEngine->isTrained());
+    logEvent(QStringLiteral("DOOR_BUTTON_PRESSED"));
+
+    if (m_authenticated) {   // 이미 인증된 상태면 다시 인증하지 않는다
+        statusBar()->showMessage(tr("이미 인증된 상태입니다"), 3000);
+        return;
+    }
+
+    // 인식을 바로 시작하지는 않는다. 등록이 필요한 경우도 있으므로
+    // 운전자 인식 화면을 열고 버튼만 사용할 수 있게 풀어준다.
+    goToPage(ui->pageDriver);
+    setDoorOpen(true);
+}
+
 void MainWindow::onDriveStateReceived(char direction)
 {
     switch (direction) {
@@ -465,14 +548,16 @@ void MainWindow::setDrivingEnabled(bool enabled)
     // 페이지 단위로 잠그므로 나중에 위젯을 추가해도 이 함수는 그대로 둔다.
     for (int i = 0; i < ui->stackMain->count(); ++i) {
         QWidget *page = ui->stackMain->widget(i);
-        if (page == ui->pageDriver)      // 인증 화면은 항상 열어둔다
-            continue;
-        page->setEnabled(enabled);
+
+        // 인증 전에는 운전자 인식 탭만, 인증 후에는 그 탭만 잠근다.
+        // 인증이 끝나면 다시 인식할 필요가 없기 때문이다.
+        const bool pageEnabled = (page == ui->pageDriver) ? !enabled : enabled;
+        page->setEnabled(pageEnabled);
 
         // 잠긴 페이지는 목록에서도 눌리지 않게 한다
         if (QListWidgetItem *item = ui->navList->item(i)) {
             Qt::ItemFlags flags = item->flags();
-            flags.setFlag(Qt::ItemIsEnabled, enabled);
+            flags.setFlag(Qt::ItemIsEnabled, pageEnabled);
             item->setFlags(flags);
         }
     }

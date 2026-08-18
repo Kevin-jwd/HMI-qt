@@ -1,5 +1,7 @@
 #include "seriallink.h"
 
+#include <QDebug>
+#include <QDebug>
 #include <QSerialPort>
 #include <QSerialPortInfo>
 #include <QTimer>
@@ -101,6 +103,11 @@ void SerialLink::handleReadyRead()
 
 void SerialLink::parseLine(const QByteArray &line)
 {
+    // $D 는 500ms 마다 오므로 로그에서 제외하고, 나머지 수신 줄은 모두 찍는다.
+    // (STM32 버튼 $B 가 실제로 도착하는지 확인하는 용도)
+    if (!line.startsWith("$D"))
+        qDebug() << "[RX]" << line;
+
     // 부팅 메시지 등 '$' 로 시작하지 않는 줄은 무시한다
     if (!line.startsWith('$') || line.size() < 2)
         return;

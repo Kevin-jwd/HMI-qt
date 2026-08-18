@@ -1,5 +1,6 @@
 #include "capturethread.h"
 
+#include <QDebug>
 #include <QMutexLocker>
 #include <QPair>
 #include <QVector>
@@ -12,6 +13,8 @@ CaptureThread::CaptureThread(int src, int width, int height, QObject *parent)
 
 void CaptureThread::run()
 {
+    m_running = true;   // stop() 이후 다시 start() 될 수 있으므로 매번 초기화
+
     // 백엔드를 순서대로 시도한다. Windows 는 DSHOW 가 가장 잘 붙는다.
 #if defined(Q_OS_WIN)
     const QVector<QPair<QString, int>> backends{
@@ -40,9 +43,11 @@ void CaptureThread::run()
     }
 
     if (!cap.isOpened()) {
+        qDebug() << "[CAM" << m_src << "] 열기 실패 - 모든 백엔드 시도함";
         emit opened(false, QStringLiteral("카메라 %1 열기 실패").arg(m_src));
         return;
     }
+    qDebug() << "[CAM" << m_src << "] 열림";
 
     cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
     cap.set(cv::CAP_PROP_FRAME_WIDTH, m_width);
@@ -59,6 +64,11 @@ void CaptureThread::run()
         m_frame = frame;    // 밀린 프레임은 그냥 버림
     }
     cap.release();
+    qDebug() << "[CAM" << m_src << "] 닫힘";
+
+    // 카메라를 끈 뒤 마지막 화면이 남아있지 않도록 비운다
+    QMutexLocker lock(&m_mutex);
+    m_frame = cv::Mat();
 }
 
 cv::Mat CaptureThread::readLatest() const
